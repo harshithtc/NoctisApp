@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pyc
+*.pyo
+.Python
+
+# Environment
+env/
+venv/
+ENV/
+.VENV/
+.venv/
+
+# Test & Coverage outputs
+htmlcov/
+.coverage
+.tox/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.pytest_cache/
+
+# Alembic migrations __pycache__
+alembic/versions/__pycache__/
+
+# SQLite, DBs, local secrets
+*.sqlite3
+*.db
+*.pid
+
+# Secret files
+.env
+.env.*
+
+# Docker
+*.log
+*.pid
+*.sock
+
+# VS Code & Mac
+.vscode/
+.DS_Store
+
+# Misc Backup/OS Stuff
+*.swp
+*~
+*.bak
+
+# Ignore compiled or container build outputs
+dist/
+build/
+.bucket/

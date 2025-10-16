@@ -1,0 +1,81 @@
+# Flutter/Dart
+.fvm/
+.melos_tool/
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+.buildlog/
+.build/
+build/
+coverage/
+coverage.lcov
+# Generated for web; do not commit
+lib/generated_plugin_registrant.dart
+# Local overrides (avoid checking in path overrides)
+pubspec_overrides.yaml
+
+# Environment files (keep templates only, e.g., .env.example)
+.env
+.env.*
+.env.local
+.env.development*
+.env.production*
+.env.test*
+
+# Android
+android/.gradle/
+android/.cxx/
+android/build/
+android/app/build/
+android/local.properties
+android/key.properties
+android/app/*.keystore
+android/app/*.jks
+# Optional: uncomment if you inject at build time
+# android/app/google-services.json
+
+# iOS
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+ios/Flutter/App.framework
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+ios/Flutter/ephemeral/
+ios/*.mobileprovision
+ios/*.provisionprofile
+ios/*.p12
+# Optional: keep for reproducibility if your team prefers
+# Podfile.lock
+# Optional: uncomment if you inject at build time
+# ios/Runner/GoogleService-Info.plist
+
+# macOS (Flutter desktop)
+macos/Flutter/ephemeral/
+macos/build/
+
+# Linux (Flutter desktop)
+linux/flutter/ephemeral/
+linux/build/
+
+# Windows (Flutter desktop)
+windows/flutter/ephemeral/
+windows/build/
+
+# Web
+web/.firebase/
+web/dist/
+web/build/
+
+# Fastlane (optional)
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db

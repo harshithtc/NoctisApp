@@ -1,0 +1,49 @@
+# Secrets
+.env
+.env.*
+
+# Python bytecode and caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.py,cover
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Test and coverage outputs
+htmlcov/
+.coverage
+coverage.xml
+nosetests.xml
+.pytype/
+.tox/
+
+# Build and dist artifacts
+build/
+dist/
+
+# Alembic noise
+alembic/versions/__pycache__/
+
+# Logs and runtime files
+logs/
+*.log
+*.pid
+*.sock
+
+# IDE/OS files
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*~
+
+# Docker/local overrides
+docker-compose.override.yml
