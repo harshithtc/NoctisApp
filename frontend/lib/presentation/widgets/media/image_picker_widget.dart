@@ -1,5 +1,6 @@
-import 'dart:io';
+// ignore_for_file: use_build_context_synchronously
 
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -46,14 +47,16 @@ class _ImagePickerWidgetState extends State<ImagePickerWidget> {
         _progress = 0.0;
       });
 
+      // Capture navigator before awaiting and read minimal provider values
+      final navigator = Navigator.of(context);
+      final auth = context.read<AuthProvider>();
+      final chat = context.read<ChatProvider>();
+
       // Compress image
       final original = File(picked.path);
       final compressed = await _compressionService.compressImage(original);
+      if (!mounted) return;
       setState(() => _progress = 0.5);
-
-      // Get providers
-      final auth = context.read<AuthProvider>();
-      final chat = context.read<ChatProvider>();
 
       // TODO: Replace with real upload (Cloudinary/S3) in Phase 2
       // final formData = FormData.fromMap({
@@ -64,7 +67,8 @@ class _ImagePickerWidgetState extends State<ImagePickerWidget> {
 
       // Simulate upload
       await Future.delayed(const Duration(seconds: 1));
-      final imageUrl = 'https://example.com/images/${compressed.path.split('/').last}';
+      final imageUrl =
+          'https://example.com/images/${compressed.path.split('/').last}';
 
       setState(() => _progress = 1.0);
 
@@ -80,7 +84,7 @@ class _ImagePickerWidgetState extends State<ImagePickerWidget> {
       widget.onImageUploaded?.call(imageUrl);
 
       if (!mounted) return;
-      Navigator.pop(context);
+      navigator.pop();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

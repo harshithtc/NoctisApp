@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -40,7 +42,9 @@ class SettingsScreen extends StatelessWidget {
             leading: CircleAvatar(
               radius: 24,
               backgroundColor: scheme.primary,
-              foregroundImage: user?.avatarUrl != null ? NetworkImage(user!.avatarUrl!) : null,
+              foregroundImage: user?.avatarUrl != null
+                  ? NetworkImage(user!.avatarUrl!)
+                  : null,
               child: user?.avatarUrl == null
                   ? Text(
                       _initials(user?.name),
@@ -59,7 +63,8 @@ class SettingsScreen extends StatelessWidget {
                 ? null
                 : () {
                     Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => ProfileScreen(user: user)),
+                      MaterialPageRoute(
+                          builder: (_) => ProfileScreen(user: user)),
                     );
                   },
           ),
@@ -90,7 +95,8 @@ class SettingsScreen extends StatelessWidget {
             trailing: const Icon(Icons.chevron_right),
             onTap: () {
               Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const NotificationSettingsScreen()),
+                MaterialPageRoute(
+                    builder: (_) => const NotificationSettingsScreen()),
               );
             },
           ),
@@ -102,7 +108,8 @@ class SettingsScreen extends StatelessWidget {
             trailing: const Icon(Icons.chevron_right),
             onTap: () {
               Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const PrivacySettingsScreen()),
+                MaterialPageRoute(
+                    builder: (_) => const PrivacySettingsScreen()),
               );
             },
           ),
@@ -114,7 +121,8 @@ class SettingsScreen extends StatelessWidget {
             trailing: const Icon(Icons.chevron_right),
             onTap: () {
               Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const StorageSettingsScreen()),
+                MaterialPageRoute(
+                    builder: (_) => const StorageSettingsScreen()),
               );
             },
           ),
@@ -165,7 +173,8 @@ class SettingsScreen extends StatelessWidget {
               if (confirmed == true && context.mounted) {
                 await authProvider.logout();
                 if (context.mounted) {
-                  Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+                  Navigator.of(context)
+                      .pushNamedAndRemoveUntil('/login', (route) => false);
                 }
               }
             },

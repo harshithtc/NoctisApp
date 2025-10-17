@@ -1,3 +1,5 @@
+// ignore_for_file: use_build_context_synchronously
+
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -209,8 +211,8 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                       TextButton(
                         onPressed: () => Navigator.pop(context, true),
-                        style: TextButton.styleFrom(
-                            foregroundColor: Colors.red),
+                        style:
+                            TextButton.styleFrom(foregroundColor: Colors.red),
                         child: const Text('Clear All'),
                       ),
                     ],
@@ -327,8 +329,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           final message = chat.messages[messageIndex];
                           final isSent =
                               message.senderId == auth.currentUser?.id;
-                          final decryptedContent =
-                              chat.decryptMessage(message);
+                          final decryptedContent = chat.decryptMessage(message);
                           return ChatBubble(
                             message: message,
                             isSent: isSent,
@@ -367,11 +368,12 @@ class _ChatScreenState extends State<ChatScreen> {
             ListTile(
               leading: const Icon(Icons.copy),
               title: const Text('Copy'),
-              onTap: () {
+              onTap: () async {
                 Navigator.pop(context);
-                Clipboard.setData(
+                await Clipboard.setData(
                   ClipboardData(text: chat.decryptMessage(message)),
                 );
+                if (!mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Message copied')),
                 );

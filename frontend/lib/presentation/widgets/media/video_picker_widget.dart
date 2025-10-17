@@ -1,6 +1,7 @@
+// ignore_for_file: use_build_context_synchronously
+
 import 'dart:async';
 import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -62,19 +63,21 @@ class _VideoPickerWidgetState extends State<VideoPickerWidget> {
         _compressionProgress = 0.0;
       });
 
+      // Capture navigator and providers before awaiting
+      final navigator = Navigator.of(context);
+      final auth = context.read<AuthProvider>();
+      final chat = context.read<ChatProvider>();
+
       // Compress video
       final videoFile = File(video.path);
       final compressedFile = await _compressionService.compressVideo(videoFile);
+      if (!mounted) return;
       if (compressedFile == null) {
         throw Exception('Video compression failed');
       }
 
       // Generate thumbnail for future preview (not used in MVP UI)
       await _compressionService.getVideoThumbnail(compressedFile);
-
-      // Providers
-      final auth = context.read<AuthProvider>();
-      final chat = context.read<ChatProvider>();
 
       // TODO: Replace with real upload in Phase 2
       // final formData = FormData.fromMap({
@@ -100,7 +103,7 @@ class _VideoPickerWidgetState extends State<VideoPickerWidget> {
       widget.onVideoUploaded?.call(videoUrl);
 
       if (!mounted) return;
-      Navigator.pop(context);
+      navigator.pop();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

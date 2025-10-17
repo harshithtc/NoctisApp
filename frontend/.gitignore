@@ -11,7 +11,6 @@ build/
 coverage/
 coverage.lcov
 # Generated for web; do not commit
-lib/generated_plugin_registrant.dart
 # Local overrides (avoid checking in path overrides)
 pubspec_overrides.yaml
 
