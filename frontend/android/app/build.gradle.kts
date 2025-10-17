@@ -10,6 +10,9 @@ import java.util.Properties
 android {
   namespace = "com.noctisapp.app"
   compileSdk = 36
+  // Ensure the Android NDK version matches the installed NDK (ndk.dir in local.properties).
+  // This prevents AGP from failing when ndk.dir and android.ndkVersion disagree.
+  ndkVersion = "29.0.14206865"
 
   defaultConfig {
     applicationId = "com.noctisapp.app"
@@ -72,10 +75,12 @@ android {
         signingConfig = signingConfigs.getByName("debug")
         project.logger.warn("Building release APK using debug signing because release keystore was not configured. Do NOT use this for Play Store uploads.")
       }
-      isMinifyEnabled = true
-      isShrinkResources = true
-      proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      ndk { debugSymbolLevel = "NONE" }
+  isMinifyEnabled = true
+  isShrinkResources = true
+  proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+  // Generate native debug symbols so Flutter tooling can strip them from the final AAB.
+  // Available values: "NONE", "SYMBOL_TABLE", "FULL". Use FULL to produce .dbg files.
+  ndk { debugSymbolLevel = "FULL" }
     }
   }
 

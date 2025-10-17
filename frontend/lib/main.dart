@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart'; // Add this!
+import 'package:flutter_dotenv/flutter_dotenv.dart'; // <-- dotenv import
 
 import 'core/theme/app_theme.dart';
 import 'data/models/message.dart';
