@@ -42,3 +42,20 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
 # Sticky sessions are recommended for multiple workers to avoid connection issues.
 # Default to single worker to ensure connection stability.
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+
+# In your Dockerfile:
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    postgresql-client \
+    ffmpeg \
+    pkg-config \
+    libavdevice-dev \
+    libavfilter-dev \
+    libavformat-dev \
+    libavcodec-dev \
+    libavresample-dev \
+    libavutil-dev \
+    libswscale-dev \
+    && rm -rf /var/lib/apt/lists/*
+
