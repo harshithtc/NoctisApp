@@ -1,15 +1,4 @@
 class ApiConstants {
-  // Base URLs - Change for production
-  static const String baseUrl = String.fromEnvironment(
-    'API_BASE_URL',
-    defaultValue: 'http://localhost:8000',
-  );
-
-  static const String wsUrl = String.fromEnvironment(
-    'WS_BASE_URL',
-    defaultValue: 'ws://localhost:8000',
-  );
-
   // API version
   static const String apiVersion = '/api/v1';
 
@@ -36,6 +25,8 @@ class ApiConstants {
   static const String media = '$apiVersion/media';
   static const String uploadImage = '$media/upload/image';
   static const String uploadVideo = '$media/upload/video';
+  static const String uploadAudio = '$media/upload/audio';
+  static const String uploadFile = '$media/upload/file';
 
   // Calls
   static const String calls = '$apiVersion/calls';

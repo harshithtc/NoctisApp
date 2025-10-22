@@ -5,8 +5,8 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart'; // << ADDED
 
+import '../../core/config/app_config.dart';
 import '../../core/constants/api_constants.dart';
 
 enum WsStatus { disconnected, connecting, connected, reconnecting }
@@ -74,16 +74,20 @@ class WebSocketService {
     }
   }
 
-  // Build WebSocket URL with token
+  // Build WebSocket URL with token using AppConfig
   String _buildWsUrl(String token) {
-    // Prefer dotenv for wsUrl if set, else fallback to ApiConstants.wsUrl
-    final envBase = dotenv.env['SOCKET_URL'];
-    final base = (envBase ?? ApiConstants.wsUrl).replaceAll(RegExp(r'/$'), ''); // ensure no trailing slash
+    // Use AppConfig.wsUrl instead of dotenv
+    final base = AppConfig.wsUrl.replaceAll(RegExp(r'/$'), ''); // ensure no trailing slash
 
     final path = ApiConstants.chatWs.startsWith('/')
         ? ApiConstants.chatWs
         : '/${ApiConstants.chatWs}';
     final url = '$base$path?token=$token';
+    
+    if (kDebugMode) {
+      print('WebSocket URL: $url');
+    }
+    
     return url;
   }
 

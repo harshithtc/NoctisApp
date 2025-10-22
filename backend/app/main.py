@@ -14,41 +14,29 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-# FIX: use Uvicorn's proxy headers middleware (Starlette path is deprecated/removed)
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from .config import settings
 from .database import engine, init_db
-from .routes import auth, messages, media, calls, websockets
+from .routes import api_router  # Import the centralized router
 
-# -----------------------------------------------------------------------------
-# Logging
-# -----------------------------------------------------------------------------
 logging.basicConfig(
     level=logging.DEBUG if getattr(settings, "DEBUG", False) else logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("app.main")
 
-# -----------------------------------------------------------------------------
-# Lifespan
-# -----------------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("%s v%s starting...", settings.APP_NAME, settings.VERSION)
     logger.info("Debug mode: %s", settings.DEBUG)
-
-    # Initialize database (migrations should be handled outside the app)
     try:
         await init_db()
         logger.info("Database initialized successfully")
     except Exception as e:
         logger.error("Database initialization failed: %s", e, exc_info=True)
         raise
-
     yield
-
-    # Graceful shutdown
     logger.info("Application shutting down...")
     try:
         await engine.dispose()
@@ -57,9 +45,6 @@ async def lifespan(app: FastAPI):
         logger.error("Error during shutdown: %s", e)
     logger.info("Application shut down successfully")
 
-# -----------------------------------------------------------------------------
-# App
-# -----------------------------------------------------------------------------
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.VERSION,
@@ -68,17 +53,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Ensure proxy headers (scheme/IP) are respected behind load balancers/reverse proxies.
-# Keep this before middlewares that rely on client IP or scheme.
-# In production, prefer specific IPs/ranges instead of "*".
+# Proxy headers for scheme, IP, etc.
 app.add_middleware(
     ProxyHeadersMiddleware,
     trusted_hosts=getattr(settings, "TRUSTED_HOSTS", ["*"]),
 )
 
-# -----------------------------------------------------------------------------
-# Rate limiting (proxy-aware IP)
-# -----------------------------------------------------------------------------
+# Rate limiting
 def real_ip_key_func(request: Request) -> str:
     xff = request.headers.get("x-forwarded-for")
     if xff:
@@ -92,20 +73,14 @@ limiter = Limiter(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# -----------------------------------------------------------------------------
-# Trusted hosts / HTTPS enforcement (prod)
-# -----------------------------------------------------------------------------
+# Trusted host & HTTPS middleware (prod only)
 trusted_hosts = getattr(settings, "TRUSTED_HOSTS", None)
 if not settings.DEBUG and trusted_hosts:
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=trusted_hosts)
-
-# If TLS terminates at an edge proxy, consider doing the redirect there to avoid loops.
 if not settings.DEBUG:
     app.add_middleware(HTTPSRedirectMiddleware)
 
-# -----------------------------------------------------------------------------
-# CORS (use exact production origins only; keep localhost in dev envs)
-# -----------------------------------------------------------------------------
+# CORS config
 cors_origins = getattr(settings, "CORS_ORIGINS", [])
 app.add_middleware(
     CORSMiddleware,
@@ -116,9 +91,7 @@ app.add_middleware(
     expose_headers=["X-Request-ID", "X-Process-Time"],
 )
 
-# -----------------------------------------------------------------------------
-# Security headers
-# -----------------------------------------------------------------------------
+# Security headers middleware
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     resp = await call_next(request)
@@ -128,13 +101,9 @@ async def add_security_headers(request: Request, call_next):
     resp.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
     if not settings.DEBUG:
         resp.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
-    # Minimal CSP for APIs (optional). Alternatively, omit CSP entirely on APIs.
     resp.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
     return resp
 
-# -----------------------------------------------------------------------------
-# Request ID + access logging (avoid logging sensitive headers/bodies)
-# -----------------------------------------------------------------------------
 @app.middleware("http")
 async def add_request_id(request: Request, call_next):
     request_id = str(uuid.uuid4())
@@ -143,7 +112,6 @@ async def add_request_id(request: Request, call_next):
         request.client.host if request.client else "unknown"
     )
     logger.info("Request %s %s [ID:%s] [IP:%s]", request.method, request.url.path, request_id, client_ip)
-
     start = datetime.utcnow()
     resp = await call_next(request)
     elapsed = (datetime.utcnow() - start).total_seconds()
@@ -152,9 +120,6 @@ async def add_request_id(request: Request, call_next):
     logger.info("Response %s [ID:%s] [%.3fs]", resp.status_code, request_id, elapsed)
     return resp
 
-# -----------------------------------------------------------------------------
-# Simple body-size guard (header-based; adjust limits to your needs)
-# -----------------------------------------------------------------------------
 MAX_JSON_BYTES = 2 * 1024 * 1024      # 2 MiB
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024   # 50 MiB
 
@@ -165,7 +130,6 @@ async def body_size_limit(request: Request, call_next):
         size = int(cl_header) if cl_header else 0
     except ValueError:
         size = 0
-
     ctype = (request.headers.get("content-type") or "").lower()
     if "multipart/form-data" in ctype:
         if size and size > MAX_UPLOAD_BYTES:
@@ -175,9 +139,6 @@ async def body_size_limit(request: Request, call_next):
             return JSONResponse(status_code=413, content={"detail": "Payload too large"})
     return await call_next(request)
 
-# -----------------------------------------------------------------------------
-# Exception handlers (consistent error shape)
-# -----------------------------------------------------------------------------
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     return JSONResponse(
@@ -201,19 +162,10 @@ async def global_exception_handler(request: Request, exc: Exception):
         },
     )
 
-# -----------------------------------------------------------------------------
-# Routers
-# -----------------------------------------------------------------------------
-app.include_router(auth.router, tags=["Authentication"])
-app.include_router(messages.router, tags=["Messages"])
-app.include_router(media.router, tags=["Media"])
-app.include_router(calls.router, tags=["Calls"])
-app.include_router(websockets.router, tags=["WebSocket"])
+# Add the grouped API router under /api/v1
+app.include_router(api_router)
 
-# -----------------------------------------------------------------------------
-# Health/Root
-# -----------------------------------------------------------------------------
-@app.get("/health", tags=["Health"])
+@app.get("/api/v1/health", tags=["Health"])
 async def health_check():
     return {
         "status": "healthy",
@@ -222,7 +174,7 @@ async def health_check():
         "timestamp": datetime.utcnow().isoformat(),
     }
 
-@app.get("/", tags=["Root"])
+@app.get("/api/v1/", tags=["Root"])
 async def root():
     return {
         "app": settings.APP_NAME,
@@ -231,18 +183,12 @@ async def root():
         "docs": "/docs" if settings.DEBUG else "Disabled in production",
     }
 
-# -----------------------------------------------------------------------------
-# Local run
-# -----------------------------------------------------------------------------
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
         port=8000,
         reload=getattr(settings, "DEBUG", False),
         log_level="info",
-        # If running behind a proxy locally and you removed the middleware, enable:
-        # proxy_headers=True, forwarded_allow_ips="*",
     )

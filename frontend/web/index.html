@@ -1,34 +1,30 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <base href="$FLUTTER_BASE_HREF">
+  <base href="/">
 
   <meta charset="UTF-8">
   <meta http-equiv="X-UA-Compatible" content="IE=Edge">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Noctisapp - chat, media, and more.">
 
-  <!-- SECURITY: Strict Content Security Policy -->
+  <!-- SECURITY: Content Security Policy for production -->
   <meta http-equiv="Content-Security-Policy" content="
-    default-src 'self';
-    base-uri 'self';
-    object-src 'none';
-    img-src 'self' data: blob:;
-    font-src 'self' data:;
-    style-src 'self' 'unsafe-inline';
-    script-src 'self';
-    connect-src 'self' https://api.example.com wss://api.example.com;
-    frame-ancestors 'none';
-    form-action 'self';
-    upgrade-insecure-requests;">
+  default-src 'self';
+  base-uri 'self';
+  object-src 'none';
+  img-src 'self' data: blob:;
+  font-src 'self' data: https://fonts.gstatic.com;
+  style-src 'self' 'unsafe-inline';
+  script-src 'self' https://www.gstatic.com;
+  connect-src 'self' https://www.gstatic.com https://fonts.gstatic.com https://YOUR-API-URL.com wss://YOUR-API-URL.com;
+  form-action 'self';
+  upgrade-insecure-requests;">
 
-  <!-- SECURITY: Additional protective headers (meta fallbacks; also set at CDN/proxy) -->
+
   <meta http-equiv="Referrer-Policy" content="no-referrer">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
   <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=(), payment=(), clipboard-read=(), clipboard-write=()">
-  <!-- Optional (enable only if SAB/advanced features are required and third-party iframes are not used) -->
-  <!-- <meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin"> -->
-  <!-- <meta http-equiv="Cross-Origin-Embedder-Policy" content="require-corp"> -->
 
   <!-- PWA / iOS -->
   <meta name="mobile-web-app-capable" content="yes">

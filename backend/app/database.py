@@ -8,7 +8,7 @@ from .config import settings
 
 logger = logging.getLogger(__name__)
 
-# Production async SQLAlchemy engine (with pool and connect options)
+# Engine configuration with pooled connection options (SQLALchemy 2.x)
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,
@@ -19,37 +19,39 @@ engine = create_async_engine(
     pool_pre_ping=True,         # test connections before using them
     connect_args={
         "server_settings": {"application_name": settings.APP_NAME}
-    } if "postgresql" in settings.DATABASE_URL else {}
+    } if settings.DATABASE_URL.startswith("postgresql") else {}
 )
 
-# Async session factory
+# Async session factory for creating DB sessions
 AsyncSessionLocal = async_sessionmaker(
     engine,
     class_=AsyncSession,
     expire_on_commit=False,
+    autoflush=False,
     autocommit=False,
-    autoflush=False
 )
 
-# DB Model base
+# Base class for declarative ORM models
 Base = declarative_base()
 
-# Dependency for async database session
 async def get_db() -> AsyncIterator[AsyncSession]:
+    """
+    Dependency to provide an async session to path operations.
+    Commits or rollbacks automatically based on outcome.
+    """
     async with AsyncSessionLocal() as session:
         try:
             yield session
             await session.commit()
         except Exception as e:
             await session.rollback()
-            logger.error(f"Database session error: {e}")
+            logger.error(f"Database session rollback due to error: {e}")
             raise
         finally:
             await session.close()
 
-# Database initialization (for startup and testing - use cautiously in prod)
-async def init_db():
-    """Initialize database tables"""
+# Initialize database tables (call during startup cautiously)
+async def init_db() -> None:
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
@@ -58,13 +60,12 @@ async def init_db():
         logger.error(f"Database initialization failed: {e}")
         raise
 
-# Health check utility for database
+# Perform simple DB health check
 async def check_db_health() -> bool:
-    """Check if database connection is healthy"""
     try:
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
-        logger.info("Database health check passed")
+        logger.info("Database health check succeeded")
         return True
     except Exception as e:
         logger.error(f"Database health check failed: {e}")

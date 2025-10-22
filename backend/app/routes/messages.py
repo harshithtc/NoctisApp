@@ -19,11 +19,9 @@ from app.schemas.message import MessageCreate, MessageResponse, MessageReaction
 
 logger = logging.getLogger("app.routes.messages")
 
-router = APIRouter(prefix="/api/v1/messages", tags=["Messages"])
+router = APIRouter(tags=["Messages"])  # Prefix handled by grouped router
 
-# Redis singleton
 _redis_client: Optional[Redis] = None
-
 
 async def get_redis() -> Redis:
     global _redis_client
@@ -43,7 +41,6 @@ async def get_redis() -> Redis:
                 detail="Redis not available",
             )
     return _redis_client
-
 
 async def rate_limit(
     redis: Redis,
@@ -68,7 +65,6 @@ async def rate_limit(
     except Exception as exc:
         logger.warning("Rate limiter error for %s: %s", key, exc)
 
-
 @router.post("/", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)
 async def send_message(
     body: MessageCreate,
@@ -76,29 +72,18 @@ async def send_message(
     db: AsyncSession = Depends(get_db),
     redis: Redis = Depends(get_redis),
 ):
-    """
-    Send a message (idempotent via client_id).
-    - Content must be client-side encrypted; server stores ciphertext and IV only.
-    - Signals for real-time delivery are handled via websockets.py.
-    """
+    """Send a client-encrypted message (idempotent via client_id)."""
     await rate_limit(redis, str(current_user.id), "messages:send", limit=60, window_seconds=60)
-
-    # Idempotency by client_id
     if body.client_id:
         existing = (await db.execute(select(Message).where(Message.client_id == body.client_id))).scalar_one_or_none()
         if existing:
             return MessageResponse.from_orm(existing)
-
-    # Validate receiver UUID
     try:
         receiver_uuid = uuid.UUID(body.receiver_id)
     except Exception:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid receiver_id")
-
-    # Enforce encrypted payload presence
     if not body.encrypted_content or not body.encryption_iv:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing encrypted content or IV")
-
     message = Message(
         client_id=body.client_id,
         sender_id=current_user.id,
@@ -114,65 +99,47 @@ async def send_message(
         self_destruct_timer=body.self_destruct_timer,
         status=MessageStatus.SENT,
     )
-
     db.add(message)
     await db.commit()
     await db.refresh(message)
-
-    # Ephemeral counters for unread (optional, safe-fail)
     try:
         await redis.incr(f"unread:{str(message.receiver_id)}:{str(message.sender_id)}")
         await redis.expire(f"unread:{str(message.receiver_id)}:{str(message.sender_id)}", 86400)
     except Exception as exc:
         logger.debug("Unread counter update failed: %s", exc)
-
-    # Optional: publish event for WS layer (websockets.py should subscribe)
     try:
         await redis.publish(f"ws:messages:{str(message.receiver_id)}", str(message.id))
     except Exception as exc:
         logger.debug("WS publish failed: %s", exc)
-
     return MessageResponse.from_orm(message)
-
 
 @router.get("/", response_model=List[MessageResponse], status_code=status.HTTP_200_OK)
 async def get_messages(
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    last_sync: Optional[datetime] = Query(None, description="Return items updated after this timestamp"),
+    last_sync: Optional[datetime] = Query(None, description="Return items updated after"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     redis: Redis = Depends(get_redis),
 ):
-    """
-    Get messages for the authenticated user with pagination and optional incremental sync by updated_at.
-    Excludes messages deleted for everyone and those deleted by the current user.
-    """
+    """Retrieve paginated messages with incremental sync and deletion filters."""
     await rate_limit(redis, str(current_user.id), "messages:list", limit=120, window_seconds=60)
-
     query = select(Message).where(
         or_(Message.sender_id == current_user.id, Message.receiver_id == current_user.id),
         Message.deleted_for_everyone.is_(False),
     )
-
     if last_sync:
         query = query.where(Message.updated_at > last_sync)
-
     query = query.order_by(Message.created_at.desc()).limit(limit).offset(offset)
-
     result = await db.execute(query)
     messages = result.scalars().all()
-
-    # Filter out messages deleted "for me"
     filtered: List[Message] = []
     for msg in messages:
         if msg.sender_id == current_user.id and not msg.deleted_by_sender:
             filtered.append(msg)
         elif msg.receiver_id == current_user.id and not msg.deleted_by_receiver:
             filtered.append(msg)
-
     return [MessageResponse.from_orm(m) for m in filtered]
-
 
 @router.delete("/{message_id}", status_code=status.HTTP_200_OK)
 async def delete_message(
@@ -182,31 +149,22 @@ async def delete_message(
     db: AsyncSession = Depends(get_db),
     redis: Redis = Depends(get_redis),
 ):
-    """
-    Delete a message.
-    - delete_for_everyone=True requires sender and within 24h window.
-    - Otherwise deletes only for the requesting user.
-    """
+    """Delete messages with optional delete-for-everyone within 24 hours."""
     await rate_limit(redis, str(current_user.id), "messages:delete", limit=60, window_seconds=60)
-
     try:
         msg_uuid = uuid.UUID(message_id)
     except Exception:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid message_id")
-
     result = await db.execute(select(Message).where(Message.id == msg_uuid))
     message = result.scalar_one_or_none()
-
     if not message:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
-
     if delete_for_everyone:
         if message.sender_id != current_user.id:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Can only delete your own messages for everyone")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Can only delete own messages for everyone")
         time_diff = (datetime.now(timezone.utc) - (message.created_at or datetime.now(timezone.utc))).total_seconds()
         if time_diff > 86400:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Can only delete messages within 24 hours")
-
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Delete window expired")
         message.deleted_for_everyone = True
         message.deleted_for_everyone_at = datetime.now(timezone.utc)
     else:
@@ -215,11 +173,9 @@ async def delete_message(
         elif message.receiver_id == current_user.id:
             message.deleted_by_receiver = True
         else:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this message")
-
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete")
     await db.commit()
     return {"message": "Message deleted successfully"}
-
 
 @router.post("/{message_id}/react", status_code=status.HTTP_200_OK)
 async def react_to_message(
@@ -229,51 +185,37 @@ async def react_to_message(
     db: AsyncSession = Depends(get_db),
     redis: Redis = Depends(get_redis),
 ):
-    """
-    Toggle a reaction for the current user on a message.
-    """
+    """Toggle reaction emoji on message by current user."""
     await rate_limit(redis, str(current_user.id), "messages:react", limit=120, window_seconds=60)
-
     try:
         msg_uuid = uuid.UUID(message_id)
     except Exception:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid message_id")
-
     result = await db.execute(select(Message).where(Message.id == msg_uuid))
     message = result.scalar_one_or_none()
-
     if not message:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
-
-    # Authorization: must be participant
     if current_user.id not in (message.sender_id, message.receiver_id):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to react to this message")
-
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to react")
     reactions = message.reactions or {}
     emoji = body.emoji
     users = set(reactions.get(emoji, []))
     uid = str(current_user.id)
-
     if uid in users:
         users.remove(uid)
     else:
         users.add(uid)
-
     if users:
         reactions[emoji] = list(users)
     else:
         reactions.pop(emoji, None)
-
     message.reactions = reactions
     await db.commit()
-
     try:
         await redis.publish(f"ws:messages:react:{str(message.receiver_id)}", str(message.id))
     except Exception as exc:
         logger.debug("WS publish (react) failed: %s", exc)
-
     return {"message": "Reaction updated", "reactions": reactions}
-
 
 @router.post("/{message_id}/mark-read", status_code=status.HTTP_200_OK)
 async def mark_message_read(
@@ -282,32 +224,23 @@ async def mark_message_read(
     db: AsyncSession = Depends(get_db),
     redis: Redis = Depends(get_redis),
 ):
-    """
-    Mark a message as read; only the receiver can mark as read.
-    """
+    """Mark a message read by receiver only."""
     await rate_limit(redis, str(current_user.id), "messages:mark_read", limit=120, window_seconds=60)
-
     try:
         msg_uuid = uuid.UUID(message_id)
     except Exception:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid message_id")
-
     result = await db.execute(select(Message).where(Message.id == msg_uuid, Message.receiver_id == current_user.id))
     message = result.scalar_one_or_none()
-
     if not message:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
-
     if not message.read_at:
         message.status = MessageStatus.READ
         message.read_at = datetime.now(timezone.utc)
         await db.commit()
-
-        # Update unread counters (safe-fail)
         try:
             await redis.delete(f"unread:{str(current_user.id)}:{str(message.sender_id)}")
             await redis.publish(f"ws:messages:read:{str(message.sender_id)}", str(message.id))
         except Exception as exc:
             logger.debug("Unread/WS read update failed: %s", exc)
-
     return {"message": "Message marked as read"}

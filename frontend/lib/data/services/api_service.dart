@@ -2,8 +2,8 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 
+import '../../core/config/app_config.dart';
 import '../../core/constants/api_constants.dart';
 
 class ApiService {
@@ -95,13 +95,14 @@ class ApiService {
       return Duration(milliseconds: fallbackMs);
     }
 
-    final String baseUrl = dotenv.env['API_URL'] ?? ApiConstants.baseUrl;
+    // Use AppConfig instead of dotenv for cross-platform compatibility
+    final String baseUrl = AppConfig.apiUrl;
 
     return BaseOptions(
       baseUrl: baseUrl,
-      connectTimeout: toDuration(ApiConstants.connectTimeout, 15000),
-      receiveTimeout: toDuration(ApiConstants.receiveTimeout, 20000),
-      sendTimeout: toDuration(ApiConstants.sendTimeout, 20000),
+      connectTimeout: toDuration(ApiConstants.connectTimeout, 30000),
+      receiveTimeout: toDuration(ApiConstants.receiveTimeout, 30000),
+      sendTimeout: toDuration(ApiConstants.sendTimeout, 30000),
       responseType: ResponseType.json,
       followRedirects: true,
       validateStatus: (code) => (code != null && code >= 200 && code < 400) || code == 401 || code == 409,
@@ -158,7 +159,8 @@ class ApiService {
 
   String _genRequestId() => '${DateTime.now().microsecondsSinceEpoch}-${identityHashCode(this)}';
 
-  // Auth APIs
+  // ==================== Auth APIs ====================
+  
   Future<Response> register(Map<String, dynamic> data) {
     return _dio.post(ApiConstants.register, data: data);
   }
@@ -193,14 +195,16 @@ class ApiService {
     }
   }
 
-  // Password Reset
   Future<Response> resetPassword(Map<String, dynamic> data) {
     return _dio.post(ApiConstants.resetPassword, data: data);
   }
 
-  // Message APIs, Media APIs, Calls APIs, Utility... (rest of your code unmodified)
-  // ...include all the other methods exactly as in your earlier version...
+  Future<Response> changePassword(Map<String, dynamic> data) {
+    return _dio.post(ApiConstants.changePassword, data: data);
+  }
 
+  // ==================== Message APIs ====================
+  
   Future<Response> sendMessage(Map<String, dynamic> data) {
     return _dio.post(ApiConstants.messages, data: data);
   }
@@ -231,7 +235,8 @@ class ApiService {
     return _dio.post(ApiConstants.messageMarkRead(messageId));
   }
 
-  // Media APIs
+  // ==================== Media APIs ====================
+  
   Future<Response> uploadImage(FormData formData, {bool encrypted = false}) {
     return _dio.post(
       ApiConstants.uploadImage,
@@ -254,7 +259,30 @@ class ApiService {
     );
   }
 
-  // Calls APIs
+  Future<Response> uploadAudio(FormData formData, {bool encrypted = false}) {
+    return _dio.post(
+      ApiConstants.uploadAudio,
+      data: formData,
+      options: Options(
+        contentType: 'multipart/form-data',
+        headers: {'X-Encrypted': encrypted.toString()},
+      ),
+    );
+  }
+
+  Future<Response> uploadFile(FormData formData, {bool encrypted = false}) {
+    return _dio.post(
+      ApiConstants.uploadFile,
+      data: formData,
+      options: Options(
+        contentType: 'multipart/form-data',
+        headers: {'X-Encrypted': encrypted.toString()},
+      ),
+    );
+  }
+
+  // ==================== Calls APIs ====================
+  
   Future<Response> initiateCall({required String receiverId, String callType = 'voice'}) {
     return _dio.post(
       ApiConstants.callsInitiate,
@@ -278,7 +306,8 @@ class ApiService {
     return _dio.get(ApiConstants.callsHistory);
   }
 
-  // Utility
+  // ==================== Utility Methods ====================
+  
   Future<String?> getAccessToken() => _secureStorage.read(key: _kAccessToken);
   Future<String?> getRefreshToken() => _secureStorage.read(key: _kRefreshToken);
 
@@ -288,4 +317,6 @@ class ApiService {
       await _secureStorage.write(key: _kRefreshToken, value: refreshToken);
     }
   }
+
+  Future<void> clearTokens() => _clearTokens();
 }

@@ -1,9 +1,11 @@
+import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart'; // <-- dotenv import
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
+import 'core/config/app_config.dart';
 import 'core/theme/app_theme.dart';
 import 'data/models/message.dart';
 import 'data/models/user.dart';
@@ -19,30 +21,50 @@ import 'presentation/screens/splash/splash_screen.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Load environment variables from .env
-  await dotenv.load();
+  // Print app configuration (debug only)
+  AppConfig.printConfig();
+
+  // Load environment variables from .env (only for mobile platforms)
+  if (!kIsWeb) {
+    try {
+      await dotenv.load(fileName: ".env");
+      if (kDebugMode) {
+        print("✓ .env loaded successfully (Mobile)");
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print("⚠ .env not found (using --dart-define values): $e");
+      }
+    }
+  } else {
+    if (kDebugMode) {
+      print("ℹ Running on Web - .env skipped (using --dart-define)");
+    }
+  }
 
   // Initialize Hive and register adapters
   await Hive.initFlutter();
   User.registerHiveAdapter();
   Message.registerHiveAdapters();
 
-  // System UI
-  SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.dark,
-      statusBarBrightness: Brightness.light,
-      systemNavigationBarColor: Colors.black,
-      systemNavigationBarIconBrightness: Brightness.light,
-    ),
-  );
+  // System UI configuration (mobile only)
+  if (!kIsWeb) {
+    SystemChrome.setSystemUIOverlayStyle(
+      const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.light,
+        systemNavigationBarColor: Colors.black,
+        systemNavigationBarIconBrightness: Brightness.light,
+      ),
+    );
 
-  // Lock orientations to portrait
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-  ]);
+    // Lock orientations to portrait (mobile only)
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
+  }
 
   runApp(const NoctisApp());
 }
@@ -62,7 +84,7 @@ class NoctisApp extends StatelessWidget {
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, _) {
           return MaterialApp(
-            title: 'NoctisApp',
+            title: AppConfig.appName,
             debugShowCheckedModeBanner: false,
             theme: AppTheme.lightTheme,
             darkTheme: AppTheme.darkTheme,

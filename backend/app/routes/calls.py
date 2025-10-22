@@ -12,7 +12,6 @@ from redis.asyncio import Redis
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Settings and core deps
 from app.config import settings
 from app.database import get_db
 from app.models.message import Call
@@ -21,18 +20,11 @@ from app.routes.auth import get_current_user
 
 logger = logging.getLogger("app.routes.calls")
 
-# Use versioned prefix as in existing codebase
-router = APIRouter(prefix="/api/v1/calls", tags=["Calls"])
+router = APIRouter(tags=["Calls"])  # Prefix handled by api_router
 
-# Lazy Redis singleton for this module
 _redis_client: Optional[Redis] = None
 
-
 async def get_redis() -> Redis:
-    """
-    Provides a connected Redis client using settings.REDIS_URL.
-    Raises HTTP 503 if Redis is not configured or not reachable.
-    """
     global _redis_client
     if _redis_client is None:
         if not getattr(settings, "REDIS_URL", None):
@@ -51,8 +43,6 @@ async def get_redis() -> Redis:
             )
     return _redis_client
 
-
-# Simple per-user rate-limiter using Redis
 async def rate_limit(
     redis: Redis,
     user_id: str,
@@ -60,10 +50,6 @@ async def rate_limit(
     limit: int = 20,
     window_seconds: int = 60,
 ) -> None:
-    """
-    Allows `limit` requests per `window_seconds` for a given user/action.
-    Raises HTTP 429 on limit exceeded.
-    """
     key = f"rl:{user_id}:{action_key}"
     try:
         current = await redis.incr(key)
@@ -78,38 +64,29 @@ async def rate_limit(
     except HTTPException:
         raise
     except Exception as exc:
-        # Fail-open: log and allow if rate-limit infra fails
         logger.warning("Rate limiter error for %s: %s", key, exc)
 
-
-# Pydantic models for request/response
 class IceServer(BaseModel):
-    urls: List[str] = Field(..., description="STUN/TURN server URLs")
-    username: Optional[str] = Field(None, description="TURN username (if required)")
-    credential: Optional[str] = Field(None, description="TURN credential/password (if required)")
-
+    urls: List[str]
+    username: Optional[str] = None
+    credential: Optional[str] = None
 
 class TurnCredentialsResponse(BaseModel):
     iceServers: List[IceServer]
-    ttl: int = Field(3600, description="Credential validity window in seconds")
-
+    ttl: int = 3600
 
 class InitiateCallRequest(BaseModel):
     receiver_id: uuid.UUID
     call_type: Literal["voice", "video"] = "voice"
 
-
 class InitiateCallResponse(BaseModel):
     id: str
     status: Literal["initiated", "answered", "ended", "declined"] = "initiated"
-    started_at: str  # isoformat
-    # Clients should fetch /turn-credentials separately; kept light here
-
+    started_at: str
 
 class SimpleMessageResponse(BaseModel):
     message: str
     duration: Optional[int] = None
-
 
 class CallStatusResponse(BaseModel):
     id: str
@@ -122,29 +99,19 @@ class CallStatusResponse(BaseModel):
     caller_id: str
     receiver_id: str
 
-
 def _default_ice_servers() -> List[IceServer]:
-    """
-    Builds ICE servers list from environment:
-      - Always include Google STUN
-      - Optionally include TURN if configured
-    """
     servers: List[IceServer] = [
         IceServer(urls=["stun:stun.l.google.com:19302"]),
         IceServer(urls=["stun:global.stun.twilio.com:3478"]),
     ]
-
     turn_url: Optional[str] = getattr(settings, "TURN_SERVER_URL", None)
     turn_user: Optional[str] = getattr(settings, "TURN_USERNAME", None)
     turn_pass: Optional[str] = getattr(settings, "TURN_PASSWORD", None)
-
-    # Accept both turn: and turns: URL schemes if provided
     if turn_url:
         urls = [turn_url]
         if "?transport=" not in turn_url:
             urls.append(f"{turn_url}?transport=udp")
             urls.append(f"{turn_url}?transport=tcp")
-
         servers.append(
             IceServer(
                 urls=urls,
@@ -152,13 +119,10 @@ def _default_ice_servers() -> List[IceServer]:
                 credential=turn_pass,
             )
         )
-
     return servers
-
 
 async def _write_call_state(redis: Redis, call_id: str, data: dict, ttl: int = 3600) -> None:
     await redis.set(f"call:{call_id}", json.dumps(data, default=str), ex=ttl)
-
 
 async def _read_call_state(redis: Redis, call_id: str) -> Optional[dict]:
     raw = await redis.get(f"call:{call_id}")
@@ -169,15 +133,9 @@ async def _read_call_state(redis: Redis, call_id: str) -> Optional[dict]:
     except json.JSONDecodeError:
         return None
 
-
-@router.get("/turn-credentials", response_model=TurnCredentialsResponse, status_code=status.HTTP_200_OK)
+@router.get("/turn-credentials", response_model=TurnCredentialsResponse)
 async def get_turn_credentials(current_user: User = Depends(get_current_user)) -> TurnCredentialsResponse:
-    """
-    Returns ICE server configuration for WebRTC (STUN + optional TURN).
-    Requires authentication.
-    """
     return TurnCredentialsResponse(iceServers=_default_ice_servers(), ttl=3600)
-
 
 @router.post("/initiate", response_model=InitiateCallResponse, status_code=status.HTTP_201_CREATED)
 async def initiate_call(
@@ -186,14 +144,7 @@ async def initiate_call(
     db: AsyncSession = Depends(get_db),
     redis: Redis = Depends(get_redis),
 ) -> InitiateCallResponse:
-    """
-    Initiate a call:
-      - Persist Call row for history/analytics.
-      - Create ephemeral state in Redis for fast status and WS signaling.
-    """
     await rate_limit(redis, str(current_user.id), "calls:initiate", limit=10, window_seconds=30)
-
-    # Persist to DB
     call = Call(
         caller_id=current_user.id,
         receiver_id=payload.receiver_id,
@@ -203,8 +154,6 @@ async def initiate_call(
     db.add(call)
     await db.commit()
     await db.refresh(call)
-
-    # Ephemeral state in Redis
     call_id = str(call.id)
     now = (call.started_at or datetime.now(timezone.utc)).isoformat()
     ttl_seconds = 3600
@@ -226,135 +175,83 @@ async def initiate_call(
     await redis.sadd(f"user:{call.receiver_id}:calls", call_id)
     await redis.expire(f"user:{call.caller_id}:calls", ttl_seconds)
     await redis.expire(f"user:{call.receiver_id}:calls", ttl_seconds)
-
     return InitiateCallResponse(id=call_id, status="initiated", started_at=now)
 
-
-@router.post("/{call_id}/answer", response_model=SimpleMessageResponse, status_code=status.HTTP_200_OK)
+@router.post("/{call_id}/answer", response_model=SimpleMessageResponse)
 async def answer_call(
     call_id: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     redis: Redis = Depends(get_redis),
 ):
-    """
-    Answer a call:
-      - Only the receiver can answer.
-      - Update DB + Redis state.
-    """
     await rate_limit(redis, str(current_user.id), "calls:answer", limit=30, window_seconds=60)
-
     try:
         call_uuid = uuid.UUID(call_id)
     except Exception:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid call_id")
-
     result = await db.execute(select(Call).where(Call.id == call_uuid))
     call: Optional[Call] = result.scalar_one_or_none()
-
     if not call:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call not found")
-
     if call.receiver_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the receiver can answer the call")
-
     if call.status == "ended":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Call already ended")
-
     call.status = "answered"
     call.answered_at = datetime.now(timezone.utc)
     await db.commit()
-
-    # Update ephemeral state
     state = await _read_call_state(redis, call_id) or {}
-    state.update(
-        {
-            "status": "answered",
-            "answered_at": call.answered_at.isoformat() if call.answered_at else None,
-        }
-    )
+    state.update({"status": "answered", "answered_at": call.answered_at.isoformat() if call.answered_at else None})
     await _write_call_state(redis, call_id, state, ttl=1800)
-
     return SimpleMessageResponse(message="Call answered")
 
-
-@router.post("/{call_id}/end", response_model=SimpleMessageResponse, status_code=status.HTTP_200_OK)
+@router.post("/{call_id}/end", response_model=SimpleMessageResponse)
 async def end_call(
     call_id: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     redis: Redis = Depends(get_redis),
 ):
-    """
-    End a call:
-      - Caller or receiver may end.
-      - Set ended_at and compute duration if answered.
-      - Update DB + Redis state.
-    """
     await rate_limit(redis, str(current_user.id), "calls:end", limit=30, window_seconds=60)
-
     try:
         call_uuid = uuid.UUID(call_id)
     except Exception:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid call_id")
-
     result = await db.execute(select(Call).where(Call.id == call_uuid))
     call: Optional[Call] = result.scalar_one_or_none()
-
     if not call:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call not found")
-
     if current_user.id not in (call.caller_id, call.receiver_id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to end this call")
-
     if call.status != "ended":
         call.status = "ended"
         call.ended_at = datetime.now(timezone.utc)
         if call.answered_at:
             call.duration = int((call.ended_at - call.answered_at).total_seconds())
         await db.commit()
-
-    # Update ephemeral state, keep short TTL for quick history
     state = await _read_call_state(redis, call_id) or {}
-    state.update(
-        {
-            "status": "ended",
-            "ended_at": call.ended_at.isoformat() if call.ended_at else None,
-            "duration": call.duration,
-        }
-    )
+    state.update({"status": "ended", "ended_at": call.ended_at.isoformat() if call.ended_at else None, "duration": call.duration})
     await _write_call_state(redis, call_id, state, ttl=300)
-
     return SimpleMessageResponse(message="Call ended", duration=call.duration)
 
-
-@router.get("/{call_id}", response_model=CallStatusResponse, status_code=status.HTTP_200_OK)
+@router.get("/{call_id}", response_model=CallStatusResponse)
 async def get_call_status(
     call_id: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     redis: Redis = Depends(get_redis),
 ) -> CallStatusResponse:
-    """
-    Fetch current call status. Prefer Redis state, fallback to DB.
-    """
     await rate_limit(redis, str(current_user.id), "calls:status", limit=60, window_seconds=60)
-
-    # Try Redis first
     state = await _read_call_state(redis, call_id)
-
-    # If missing in Redis, fetch from DB and reconstruct
     if not state:
         try:
             call_uuid = uuid.UUID(call_id)
         except Exception:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid call_id")
-
         result = await db.execute(select(Call).where(Call.id == call_uuid))
         call: Optional[Call] = result.scalar_one_or_none()
         if not call:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call not found")
-
         state = {
             "call_id": str(call.id),
             "status": call.status,
@@ -366,12 +263,9 @@ async def get_call_status(
             "ended_at": call.ended_at.isoformat() if call.ended_at else None,
             "duration": call.duration,
         }
-
-    # Authorization: only caller/receiver can view
     uid = str(current_user.id)
     if uid not in (state["caller_id"], state["receiver_id"]):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to view this call")
-
     return CallStatusResponse(
         id=state["call_id"],
         type=state.get("call_type", "voice"),
@@ -384,15 +278,11 @@ async def get_call_status(
         receiver_id=state["receiver_id"],
     )
 
-
-@router.get("/history", status_code=status.HTTP_200_OK)
+@router.get("/history")
 async def get_call_history(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Get recent call history for the authenticated user.
-    """
     result = await db.execute(
         select(Call)
         .where(or_(Call.caller_id == current_user.id, Call.receiver_id == current_user.id))
@@ -400,7 +290,6 @@ async def get_call_history(
         .limit(50)
     )
     calls = result.scalars().all()
-
     return [
         {
             "id": str(call.id),
